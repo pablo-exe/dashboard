@@ -14,6 +14,7 @@ ONEDRIVE_DB_URL = os.getenv(
     "ONEDRIVE_DB_URL",
     "https://grupoarpada-my.sharepoint.com/:u:/p/pcuervo/IQAl8U_XCr2iSJSTQE4kHYwIAU_go9Hkiktksk4RsO2veXs?e=VICW8o",
 )
+ALWAYS_REFRESH_DB = os.getenv("ALWAYS_REFRESH_DB", "0") == "1"
 
 
 def _get_db_path():
@@ -24,11 +25,13 @@ def _get_db_path():
     return Path(__file__).resolve().parent / "data" / "experiments.duckdb"
 
 
-def _download_db_from_onedrive(target_path: Path) -> bool:
+def _download_db_from_onedrive(target_path: Path, overwrite: bool = False) -> bool:
     if not ONEDRIVE_DB_URL:
         return False
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
+    if target_path.exists() and not overwrite:
+        return True
     url = ONEDRIVE_DB_URL
     if "download=1" not in url:
         joiner = "&" if "?" in url else "?"
@@ -39,10 +42,12 @@ def _download_db_from_onedrive(target_path: Path) -> bool:
             content_type = resp.headers.get("Content-Type", "")
             if resp.status_code != 200 or "text/html" in content_type:
                 return False
-            with open(target_path, "wb") as f:
+            tmp_path = target_path.with_suffix(".tmp")
+            with open(tmp_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         f.write(chunk)
+            tmp_path.replace(target_path)
         return True
     except Exception:
         return False
@@ -96,8 +101,14 @@ def _query_label(row):
 def main():
     st.title("RAG Experimentos")
     db_path = _get_db_path()
-    if not db_path.exists():
-        ok = _download_db_from_onedrive(db_path)
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        refresh_db = st.button("Actualizar DB desde OneDrive")
+    with col2:
+        refresh = st.button("Refrescar datos")
+
+    if ALWAYS_REFRESH_DB or refresh_db or not db_path.exists():
+        ok = _download_db_from_onedrive(db_path, overwrite=True)
         if not ok:
             st.warning(
                 "No se pudo descargar la base DuckDB desde OneDrive. "
@@ -107,9 +118,7 @@ def main():
             st.stop()
     if "runs_cache" not in st.session_state:
         st.session_state["runs_cache"] = None
-
-    refresh = st.button("Refrescar datos")
-    if refresh or st.session_state["runs_cache"] is None:
+    if refresh or refresh_db or ALWAYS_REFRESH_DB or st.session_state["runs_cache"] is None:
         runs = _fetch_df(
             """
             SELECT run_id, created_at, completed_at, model, k_context, k_bbdd, concurrency,
