@@ -1,11 +1,22 @@
 import json
 import os
+import sys
 from pathlib import Path
 import requests
 
 import streamlit as st
 import pandas as pd
 import duckdb
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SRC_ROOT = PROJECT_ROOT / "src"
+if str(SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(SRC_ROOT))
+
+try:
+    from config import config as project_config
+except Exception:
+    project_config = None
 
 
 st.set_page_config(page_title="RAG Experiments", layout="wide")
@@ -15,6 +26,76 @@ ONEDRIVE_DB_URL = os.getenv(
     "https://grupoarpada-my.sharepoint.com/:u:/p/pcuervo/IQAl8U_XCr2iSJSTQE4kHYwIAU_go9Hkiktksk4RsO2veXs?e=VICW8o",
 )
 ALWAYS_REFRESH_DB = os.getenv("ALWAYS_REFRESH_DB", "0") == "1"
+
+
+def _inject_styles():
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background: linear-gradient(180deg, #f7f9fc 0%, #ffffff 35%, #f7f9fc 100%);
+        }
+        .block-container {
+            padding-top: 2rem;
+            padding-bottom: 3rem;
+            max-width: 1400px;
+        }
+        h1, h2, h3 {
+            letter-spacing: -0.02em;
+        }
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #0f172a;
+            margin-top: 0.25rem;
+            margin-bottom: 0.35rem;
+        }
+        .section-caption {
+            font-size: 0.9rem;
+            color: #475569;
+            margin-bottom: 0.5rem;
+        }
+        .pill {
+            display: inline-block;
+            padding: 0.25rem 0.6rem;
+            border-radius: 999px;
+            background: #eef2ff;
+            color: #3730a3;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-right: 0.4rem;
+        }
+        .pill-muted {
+            background: #f1f5f9;
+            color: #64748b;
+        }
+        .metrics-wrap {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            margin-bottom: 0.5rem;
+        }
+        .metric-card {
+            padding: 0.75rem 0.9rem;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            background: #ffffff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+            min-width: 160px;
+        }
+        .metric-label {
+            font-size: 0.78rem;
+            color: #64748b;
+        }
+        .metric-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #0f172a;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _get_db_path():
@@ -77,29 +158,13 @@ def _fetch_all(query, params=None):
         con.close()
 
 
-def _safe_str(value):
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return ""
-    return str(value)
-
-
-def _run_label(row):
-    created = _safe_str(row.get("created_at"))
-    model = _safe_str(row.get("model"))
-    short = _safe_str(row.get("run_id"))[:8]
-    return f"{short} | {model} | {created}"
-
-
-def _query_label(row):
-    idx = row.get("row_index")
-    codigo = _safe_str(row.get("codigo"))
-    f2 = row.get("f2_semantico")
-    f2_str = f"{f2:.3f}" if isinstance(f2, (int, float)) and not pd.isna(f2) else "n/a"
-    return f"{idx} | {codigo} | f2={f2_str}"
-
-
 def main():
-    st.title("RAG Experimentos")
+    _inject_styles()
+    st.markdown("## RAG Experimentos")
+    st.caption(
+        "Explora ejecuciones, compara metricas y revisa artefactos. "
+        "Selecciona un run o una partida desde las tablas para ver su detalle."
+    )
     db_path = _get_db_path()
     col1, col2 = st.columns([1, 1])
     with col1:
@@ -119,10 +184,17 @@ def main():
     if "runs_cache" not in st.session_state:
         st.session_state["runs_cache"] = None
     if refresh or refresh_db or ALWAYS_REFRESH_DB or st.session_state["runs_cache"] is None:
+        runs_columns = [row[1] for row in _fetch_all("PRAGMA table_info('runs')")]
+        select_model_context = (
+            "model_context" if "model_context" in runs_columns else "NULL AS model_context"
+        )
+        select_model_bbdd = (
+            "model_bbdd" if "model_bbdd" in runs_columns else "NULL AS model_bbdd"
+        )
         runs = _fetch_df(
-            """
-            SELECT run_id, created_at, completed_at, model, k_context, k_bbdd, concurrency,
-                   input_path, bbdd_obra_path, bbdd_estudios_path,
+            f"""
+            SELECT run_id, created_at, completed_at, {select_model_context}, {select_model_bbdd},
+                   k_context, k_bbdd, concurrency, input_path, bbdd_obra_path, bbdd_estudios_path,
                    precision_semantica_mean, recall_semantico_mean, f1_semantico_mean,
                    f2_semantico_mean, num_queries
             FROM runs
@@ -137,13 +209,28 @@ def main():
         st.info("No hay runs registrados en la base de datos.")
         return
 
-    st.subheader("Runs")
+    st.markdown('<div class="section-title">Runs</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-caption">Vista general de ejecuciones recientes.</div>',
+        unsafe_allow_html=True,
+    )
     max_rows = st.selectbox(
         "Mostrar",
-        options=[50, 100, 200, 500, 1000],
+        options=[5, 10, 20, 50],
         index=2,
         help="Limita el número de runs mostrados para rendimiento.",
     )
+    if "model_context" not in runs.columns:
+        runs["model_context"] = None
+    if "model_bbdd" not in runs.columns:
+        runs["model_bbdd"] = None
+    if project_config is not None:
+        runs["model_context"] = (
+            runs["model_context"].astype("string").fillna(project_config.DEFAULT_MODEL_CONTEXT)
+        )
+        runs["model_bbdd"] = (
+            runs["model_bbdd"].astype("string").fillna(project_config.DEFAULT_MODEL_BBDD)
+        )
 
     metric_cols = [
         "precision_semantica_mean",
@@ -168,27 +255,29 @@ def main():
         runs["obra"] = runs["bbdd_obra_path"].apply(_obra_from_path)
     else:
         runs["obra"] = ""
-    ordered_cols = [
-        "run_id",
-        "created_at",
-        "obra",
-        *metric_cols,
+    hidden_cols = [
         "completed_at",
-        "model",
         "k_context",
         "k_bbdd",
         "concurrency",
-        "num_queries",
         "input_path",
         "bbdd_obra_path",
         "bbdd_estudios_path",
     ]
-    runs_view = runs.loc[:, [c for c in ordered_cols if c in runs.columns]].head(max_rows)
-
-    def _metric_style(val):
-        if val is None or (isinstance(val, float) and pd.isna(val)):
-            return ""
-        return ""
+    ordered_cols = [
+        "run_id",
+        "created_at",
+        "obra",
+        "model_context",
+        "model_bbdd",
+        *metric_cols,
+        "num_queries",
+        *hidden_cols,
+    ]
+    runs_view = runs.loc[
+        :,
+        [c for c in ordered_cols if c in runs.columns and c not in hidden_cols],
+    ].head(max_rows)
 
     styled = runs_view.style.background_gradient(
         cmap="RdYlGn",
@@ -206,13 +295,6 @@ def main():
         key="runs_table",
     )
 
-    run_labels = {row["run_id"]: _run_label(row) for _, row in runs.iterrows()}
-    selected_run_id = st.selectbox(
-        "Selecciona un run",
-        runs["run_id"].tolist(),
-        format_func=lambda rid: run_labels.get(rid, rid),
-    )
-
     selected_rows = None
     if hasattr(runs_selection, "selection"):
         selected_rows = runs_selection.selection.rows
@@ -220,15 +302,92 @@ def main():
         sel_state = st.session_state.get("runs_table", {})
         selected_rows = sel_state.get("selection", {}).get("rows")
 
+    selected_run_id = None
     if selected_rows:
         row_idx = selected_rows[0]
         if row_idx < len(runs_view):
             selected_run_id = runs_view.iloc[row_idx]["run_id"]
 
+    if not selected_run_id:
+        if runs_view.empty:
+            st.info("No hay runs visibles para seleccionar.")
+            return
+        selected_run_id = runs_view.iloc[0]["run_id"]
+
     run_details = runs.loc[runs["run_id"] == selected_run_id].iloc[0].to_dict()
 
-    st.markdown("### Detalle del run")
-    st.json(run_details)
+    model_context = run_details.get("model_context")
+    model_bbdd = run_details.get("model_bbdd")
+    if project_config is not None:
+        if not model_context:
+            model_context = project_config.DEFAULT_MODEL_CONTEXT
+        if not model_bbdd:
+            model_bbdd = project_config.DEFAULT_MODEL_BBDD
+        run_details["vector_store_context"] = project_config.VS_CONTEXTO_ID
+        run_details["vector_store_bbdd"] = project_config.VS_BBDD_ID
+    run_details["model_context"] = model_context
+    run_details["model_bbdd"] = model_bbdd
+
+    ordered_run_details = {}
+    ordered_keys = [
+        "run_id",
+        "obra",
+        "model_context",
+        "model_bbdd",
+        "precision_semantica_mean",
+        "recall_semantico_mean",
+        "f1_semantico_mean",
+        "f2_semantico_mean",
+        "num_queries",
+        "k_context",
+        "k_bbdd",
+        "concurrency",
+        "vector_store_context",
+        "vector_store_bbdd",
+        "input_path",
+        "bbdd_obra_path",
+        "bbdd_estudios_path",
+        "created_at",
+        "completed_at",
+    ]
+    for key in ordered_keys:
+        if key in run_details:
+            ordered_run_details[key] = run_details[key]
+    for key, value in run_details.items():
+        if key not in ordered_run_details:
+            ordered_run_details[key] = value
+
+    st.markdown('<div class="section-title">Detalle del run</div>', unsafe_allow_html=True)
+    run_meta = []
+    run_meta.append(f'<span class="pill">RUN {selected_run_id[:8]}</span>')
+    if ordered_run_details.get("obra"):
+        run_meta.append(f'<span class="pill pill-muted">{ordered_run_details["obra"]}</span>')
+    st.markdown(" ".join(run_meta), unsafe_allow_html=True)
+
+    metrics = [
+        ("Precision", ordered_run_details.get("precision_semantica_mean")),
+        ("Recall", ordered_run_details.get("recall_semantico_mean")),
+        ("F1", ordered_run_details.get("f1_semantico_mean")),
+        ("F2", ordered_run_details.get("f2_semantico_mean")),
+    ]
+    metric_cards = []
+    for label, value in metrics:
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            display = "n/a"
+        else:
+            display = f"{float(value):.3f}"
+        metric_cards.append(
+            f"<div class='metric-card'><div class='metric-label'>{label}</div>"
+            f"<div class='metric-value'>{display}</div></div>"
+        )
+    if metric_cards:
+        st.markdown(
+            f"<div class='metrics-wrap'>{''.join(metric_cards)}</div>",
+            unsafe_allow_html=True,
+        )
+
+    with st.expander("Ver detalles completos del run", expanded=False):
+        st.json(ordered_run_details)
 
     run_artifacts = _fetch_all(
         "SELECT name, content FROM artifacts WHERE run_id = ? AND query_id IS NULL ORDER BY name",
@@ -236,10 +395,12 @@ def main():
     )
 
     if run_artifacts:
-        st.markdown("### Artefactos del run")
+        st.markdown('<div class="section-title">Prompts del run</div>', unsafe_allow_html=True)
         for name, content in run_artifacts:
             with st.expander(name, expanded=False):
                 st.text_area(name, value=content, height=240)
+
+    st.divider()
 
     base_query_cols = """
         query_id, row_index, codigo, concepto, descripcion,
@@ -266,21 +427,28 @@ def main():
         st.info("Este run no tiene queries registradas.")
         return
 
-    st.subheader("Partidas")
+    st.markdown('<div class="section-title">Partidas</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-caption">Selecciona una fila para ver el detalle.</div>',
+        unsafe_allow_html=True,
+    )
+    hidden_query_cols = [
+        "query_id",
+        "row_index",
+        "codigos_predichos_json",
+        "ground_truth_json",
+        "conceptos_predichos_json",
+        "conceptos_ground_truth_json",
+        "conceptos_missing_ground_truth_json"
+    ]
+    queries_view = queries.loc[:, [c for c in queries.columns if c not in hidden_query_cols]]
     query_selection = st.dataframe(
-        queries,
+        queries_view,
         width="stretch",
         hide_index=True,
         on_select="rerun",
         selection_mode="single-row",
         key="queries_table",
-    )
-
-    query_labels = {row["query_id"]: _query_label(row) for _, row in queries.iterrows()}
-    selected_query_id = st.selectbox(
-        "Selecciona una query",
-        queries["query_id"].tolist(),
-        format_func=lambda qid: query_labels.get(qid, qid),
     )
 
     selected_q_rows = None
@@ -290,18 +458,52 @@ def main():
         sel_state = st.session_state.get("queries_table", {})
         selected_q_rows = sel_state.get("selection", {}).get("rows")
 
+    selected_query_id = None
     if selected_q_rows:
         row_idx = selected_q_rows[0]
         if row_idx < len(queries):
             selected_query_id = queries.iloc[row_idx]["query_id"]
+
+    if not selected_query_id:
+        selected_query_id = queries.iloc[0]["query_id"]
 
     query_row = _fetch_df(
         "SELECT * FROM queries WHERE query_id = ?",
         [selected_query_id],
     ).iloc[0].to_dict()
 
-    st.markdown("### Detalle de la query")
-    st.json(query_row)
+    ordered_query_details = {}
+    ordered_query_keys = [
+        "query_id",
+        "run_id",
+        "capitulo",
+        "codigo",
+        "concepto",
+        "descripcion",
+        "precision_semantica",
+        "recall_semantico",
+        "f1_semantico",
+        "f2_semantico",
+        "codigos_predichos_json",
+        "ground_truth_json",
+        "conceptos_predichos_json",
+        "conceptos_ground_truth_json",
+        "missing_ground_truth_json",
+        "conceptos_missing_ground_truth_json",
+        "created_at",
+        "updated_at",
+        "row_index",
+    ]
+    for key in ordered_query_keys:
+        if key in query_row:
+            ordered_query_details[key] = query_row[key]
+    for key, value in query_row.items():
+        if key not in ordered_query_details:
+            ordered_query_details[key] = value
+
+    st.markdown('<div class="section-title">Detalle de la query</div>', unsafe_allow_html=True)
+    with st.expander("Ver detalle completo de la query", expanded=False):
+        st.json(ordered_query_details)
 
     artifacts = _fetch_all(
         "SELECT name, content FROM artifacts WHERE query_id = ? ORDER BY name",
@@ -309,13 +511,19 @@ def main():
     )
 
     if artifacts:
-        st.markdown("### Artefactos de la query")
+        st.markdown('<div class="section-title">Artefactos de la query</div>', unsafe_allow_html=True)
         for name, content in artifacts:
-            with st.expander(name, expanded=True):
-                if name in {"response_bbdd", "response_context"}:
+            with st.expander(name, expanded=False):
+                if name in {"response_bbdd", "response_context", "output"}:
                     try:
                         parsed = json.loads(content)
-                        st.json(parsed)
+                        if (
+                            isinstance(parsed, dict)
+                            and "razonamiento" in parsed
+                            and isinstance(parsed["razonamiento"], str)
+                        ):
+                            parsed["razonamiento"] = parsed["razonamiento"].replace("\\n", "\n")
+                        st.json(parsed, expanded=True)
                     except Exception:
                         st.text_area(name, value=content, height=320)
                 else:
