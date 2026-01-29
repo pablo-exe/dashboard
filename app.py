@@ -154,11 +154,10 @@ def main():
     def _obra_from_path(path_value: str) -> str:
         if not path_value:
             return ""
-        # Usa solo el nombre base sin extensiones
-        try:
-            name = Path(str(path_value)).stem
-        except Exception:
-            name = str(path_value).replace("\\", "/").rstrip("/").split("/")[-1]
+        # Normaliza separadores para que funcione en Windows/Linux
+        text = str(path_value).replace("\\", "/")
+        name = text.rstrip("/").split("/")[-1]
+        if "." in name:
             name = name.rsplit(".", 1)[0]
 
         if name.startswith("benchmark_"):
