@@ -151,9 +151,25 @@ def main():
         "f1_semantico_mean",
         "f2_semantico_mean",
     ]
+    def _obra_from_path(path_value: str) -> str:
+        if not path_value:
+            return ""
+        try:
+            name = Path(str(path_value)).stem
+        except Exception:
+            name = str(path_value)
+        if name.startswith("benchmark_"):
+            name = name.replace("benchmark_", "", 1)
+        return name
+
+    if "bbdd_obra_path" in runs.columns:
+        runs["obra"] = runs["bbdd_obra_path"].apply(_obra_from_path)
+    else:
+        runs["obra"] = ""
     ordered_cols = [
         "run_id",
         "created_at",
+        "obra",
         *metric_cols,
         "completed_at",
         "model",
@@ -223,12 +239,6 @@ def main():
             with st.expander(name, expanded=False):
                 st.text_area(name, value=content, height=240)
 
-    show_json_cols = st.checkbox(
-        "Mostrar columnas JSON en la tabla de queries",
-        value=False,
-        help="Incluye codigos/ground_truth/conceptos como JSON (puede ensanchar la tabla).",
-    )
-
     base_query_cols = """
         query_id, row_index, codigo, concepto, descripcion,
         precision_semantica, recall_semantico, f1_semantico, f2_semantico
@@ -238,7 +248,7 @@ def main():
         conceptos_predichos_json, conceptos_ground_truth_json,
         missing_ground_truth_json, conceptos_missing_ground_truth_json
     """
-    select_cols = base_query_cols + ("," + json_query_cols if show_json_cols else "")
+    select_cols = base_query_cols + "," + json_query_cols
 
     queries = _fetch_df(
         f"""
