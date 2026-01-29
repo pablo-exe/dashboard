@@ -163,9 +163,6 @@ def main():
 
         if name.startswith("benchmark_"):
             name = name[len("benchmark_"):]
-            parts = name.split("_", 1)
-            if len(parts) == 2 and parts[0].isdigit():
-                name = parts[1]
         return name
 
     if "bbdd_obra_path" in runs.columns:
