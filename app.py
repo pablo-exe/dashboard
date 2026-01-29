@@ -270,7 +270,7 @@ def main():
         st.info("Este run no tiene queries registradas.")
         return
 
-    st.subheader("Queries")
+    st.subheader("Partidas")
     query_selection = st.dataframe(
         queries,
         width="stretch",
