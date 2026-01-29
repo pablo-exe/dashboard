@@ -1,22 +1,11 @@
 import json
 import os
-import sys
 from pathlib import Path
 import requests
 
 import streamlit as st
 import pandas as pd
 import duckdb
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SRC_ROOT = PROJECT_ROOT / "src"
-if str(SRC_ROOT) not in sys.path:
-    sys.path.insert(0, str(SRC_ROOT))
-
-try:
-    from config import config as project_config
-except Exception:
-    project_config = None
 
 
 st.set_page_config(page_title="RAG Experiments", layout="wide")
@@ -224,13 +213,6 @@ def main():
         runs["model_context"] = None
     if "model_bbdd" not in runs.columns:
         runs["model_bbdd"] = None
-    if project_config is not None:
-        runs["model_context"] = (
-            runs["model_context"].astype("string").fillna(project_config.DEFAULT_MODEL_CONTEXT)
-        )
-        runs["model_bbdd"] = (
-            runs["model_bbdd"].astype("string").fillna(project_config.DEFAULT_MODEL_BBDD)
-        )
 
     metric_cols = [
         "precision_semantica_mean",
@@ -316,17 +298,8 @@ def main():
 
     run_details = runs.loc[runs["run_id"] == selected_run_id].iloc[0].to_dict()
 
-    model_context = run_details.get("model_context")
-    model_bbdd = run_details.get("model_bbdd")
-    if project_config is not None:
-        if not model_context:
-            model_context = project_config.DEFAULT_MODEL_CONTEXT
-        if not model_bbdd:
-            model_bbdd = project_config.DEFAULT_MODEL_BBDD
-        run_details["vector_store_context"] = project_config.VS_CONTEXTO_ID
-        run_details["vector_store_bbdd"] = project_config.VS_BBDD_ID
-    run_details["model_context"] = model_context
-    run_details["model_bbdd"] = model_bbdd
+    run_details["model_context"] = run_details.get("model_context")
+    run_details["model_bbdd"] = run_details.get("model_bbdd")
 
     ordered_run_details = {}
     ordered_keys = [
@@ -342,8 +315,6 @@ def main():
         "k_context",
         "k_bbdd",
         "concurrency",
-        "vector_store_context",
-        "vector_store_bbdd",
         "input_path",
         "bbdd_obra_path",
         "bbdd_estudios_path",
