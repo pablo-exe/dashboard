@@ -154,18 +154,18 @@ def main():
     def _obra_from_path(path_value: str) -> str:
         if not path_value:
             return ""
-
+        # Usa solo el nombre base sin extensiones
         try:
-            # Normaliza separadores y elimina ./ ../
-            p = Path(path_value).expanduser().resolve()
-            name = p.name
+            name = Path(str(path_value)).stem
         except Exception:
-            # Fallback seguro
             name = str(path_value).replace("\\", "/").rstrip("/").split("/")[-1]
+            name = name.rsplit(".", 1)[0]
 
         if name.startswith("benchmark_"):
             name = name[len("benchmark_"):]
-
+            parts = name.split("_", 1)
+            if len(parts) == 2 and parts[0].isdigit():
+                name = parts[1]
         return name
 
     if "bbdd_obra_path" in runs.columns:
