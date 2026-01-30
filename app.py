@@ -180,9 +180,21 @@ def main():
         select_model_bbdd = (
             "model_bbdd" if "model_bbdd" in runs_columns else "NULL AS model_bbdd"
         )
+        select_vs_context = (
+            "vector_store_context"
+            if "vector_store_context" in runs_columns
+            else "NULL AS vector_store_context"
+        )
+        select_vs_bbdd = (
+            "vector_store_bbdd"
+            if "vector_store_bbdd" in runs_columns
+            else "NULL AS vector_store_bbdd"
+        )
         runs = _fetch_df(
             f"""
-            SELECT run_id, created_at, completed_at, {select_model_context}, {select_model_bbdd},
+            SELECT run_id, created_at, completed_at,
+                   {select_model_context}, {select_model_bbdd},
+                   {select_vs_context}, {select_vs_bbdd},
                    k_context, k_bbdd, concurrency, input_path, bbdd_obra_path, bbdd_estudios_path,
                    precision_semantica_mean, recall_semantico_mean, f1_semantico_mean,
                    f2_semantico_mean, num_queries
@@ -213,6 +225,10 @@ def main():
         runs["model_context"] = None
     if "model_bbdd" not in runs.columns:
         runs["model_bbdd"] = None
+    if "vector_store_context" not in runs.columns:
+        runs["vector_store_context"] = None
+    if "vector_store_bbdd" not in runs.columns:
+        runs["vector_store_bbdd"] = None
 
     metric_cols = [
         "precision_semantica_mean",
@@ -307,6 +323,8 @@ def main():
         "obra",
         "model_context",
         "model_bbdd",
+        "vector_store_context",
+        "vector_store_bbdd",
         "precision_semantica_mean",
         "recall_semantico_mean",
         "f1_semantico_mean",
