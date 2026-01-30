@@ -7,6 +7,8 @@ import streamlit as st
 import pandas as pd
 import duckdb
 
+from trace_viewer import render_trace_viewer, TRACE_VIEWER_ENABLED
+
 
 st.set_page_config(page_title="RAG Experiments", layout="wide")
 
@@ -503,7 +505,8 @@ def main():
         st.markdown('<div class="section-title">Artefactos de la query</div>', unsafe_allow_html=True)
         for name, content in artifacts:
             with st.expander(name, expanded=False):
-                if name in {"response_bbdd", "response_context", "output"}:
+                if name in {"response_bbdd", "response_context"} and TRACE_VIEWER_ENABLED:
+                    # Use the new Trace Viewer for response artifacts
                     try:
                         parsed = json.loads(content)
                         if (
@@ -512,8 +515,18 @@ def main():
                             and isinstance(parsed["razonamiento"], str)
                         ):
                             parsed["razonamiento"] = parsed["razonamiento"].replace("\\n", "\n")
+                        render_trace_viewer(parsed, artifact_name=f"{selected_query_id}_{name}")
+                    except json.JSONDecodeError:
+                        st.text_area(name, value=content, height=320)
+                    except Exception as e:
+                        st.warning(f"Error al renderizar trace: {str(e)}")
+                        st.text_area(name, value=content, height=320)
+                elif name == "output":
+                    # Show output as parsed JSON
+                    try:
+                        parsed = json.loads(content)
                         st.json(parsed, expanded=True)
-                    except Exception:
+                    except json.JSONDecodeError:
                         st.text_area(name, value=content, height=320)
                 else:
                     st.text_area(name, value=content, height=320)
